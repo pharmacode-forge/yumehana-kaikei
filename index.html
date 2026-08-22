@@ -159,9 +159,14 @@
   }
   .sheet-handle { width: 40px; height: 4px; background: var(--gridline); border-radius: 999px; margin: 0 auto 12px; }
   .sheet-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+  .sheet-header-fields { display: flex; flex-direction: column; flex: 1; min-width: 0; gap: 0; }
   .sheet-header input.label-input {
     font-size: 19px; font-weight: 800; border: none; background: transparent; color: var(--text-primary);
-    flex: 1; min-width: 0; padding: 4px 0;
+    width: 100%; min-width: 0; padding: 4px 0 0;
+  }
+  .sheet-header input.customer-input {
+    font-size: 13px; font-weight: 500; border: none; background: transparent; color: var(--text-secondary);
+    width: 100%; min-width: 0; padding: 0 0 4px;
   }
   .icon-btn {
     border: none; background: var(--surface-2); color: var(--text-secondary);
@@ -380,7 +385,10 @@
   <div class="sheet">
     <div class="sheet-handle"></div>
     <div class="sheet-header">
-      <input type="text" class="label-input" id="orderLabelInput" placeholder="卓番・お名前">
+      <div class="sheet-header-fields">
+        <input type="text" class="label-input" id="orderLabelInput" placeholder="卓番">
+        <input type="text" class="customer-input" id="orderCustomerInput" placeholder="お客様名（任意）">
+      </div>
       <button class="icon-btn" id="closeOrderSheet">✕</button>
     </div>
     <div id="menuPicker"></div>
@@ -510,6 +518,7 @@
   var pendingPayMethod = null;
   var confirmCallback = null;
   var labelSaveTimer = null;
+  var customerSaveTimer = null;
 
   function orderTotalFromItems(items){
     return (items || []).reduce(function(s, it){ return s + it.price * it.qty; }, 0);
@@ -526,6 +535,12 @@
   function findOrder(id){
     return dayData.open.find(function(o){ return o.id === id; }) ||
            dayData.completed.find(function(o){ return o.id === id; });
+  }
+
+  function orderDisplayLabel(order){
+    var base = order.label || "";
+    if (order.customer_name) return base + " ・ " + order.customer_name;
+    return base;
   }
 
   // ---------- Data loading ----------
@@ -600,7 +615,7 @@
       card.className = "table-card";
       var itemCount = order.items.reduce(function(s,it){ return s+it.qty; }, 0);
       card.innerHTML =
-        '<div class="label">' + escapeHtml(order.label) + '</div>' +
+        '<div class="label">' + escapeHtml(orderDisplayLabel(order)) + '</div>' +
         '<div class="meta">' + itemCount + '点 ・ ' + fmtTime(order.opened_at) + '〜</div>' +
         '<div class="amount">' + fmtYen(order.computedTotal) + '</div>';
       card.addEventListener("click", function(){ openOrderSheet(order.id); });
@@ -627,12 +642,14 @@
   // ---------- Order detail sheet ----------
   var orderOverlay = document.getElementById("orderOverlay");
   var orderLabelInput = document.getElementById("orderLabelInput");
+  var orderCustomerInput = document.getElementById("orderCustomerInput");
 
   function openOrderSheet(id){
     activeOrderId = id;
     var order = findOrder(id);
     if (!order) return;
     orderLabelInput.value = order.label;
+    orderCustomerInput.value = order.customer_name || "";
     renderMenuPicker();
     renderOrderLines();
     orderOverlay.classList.add("active");
@@ -656,6 +673,18 @@
     clearTimeout(labelSaveTimer);
     labelSaveTimer = setTimeout(async function(){
       await sb.from("orders").update({ label: valToSave }).eq("id", idToSave);
+    }, 500);
+  });
+
+  orderCustomerInput.addEventListener("input", function(){
+    var order = findOrder(activeOrderId);
+    if (!order) return;
+    order.customer_name = orderCustomerInput.value || "";
+    var idToSave = activeOrderId;
+    var valToSave = order.customer_name;
+    clearTimeout(customerSaveTimer);
+    customerSaveTimer = setTimeout(async function(){
+      await sb.from("orders").update({ customer_name: valToSave }).eq("id", idToSave);
     }, 500);
   });
 
@@ -744,7 +773,7 @@
   document.getElementById("deleteOrderBtn").addEventListener("click", function(){
     var order = findOrder(activeOrderId);
     if (!order) return;
-    showConfirm("「" + order.label + "」を削除します。よろしいですか？", async function(){
+    showConfirm("「" + orderDisplayLabel(order) + "」を削除します。よろしいですか？", async function(){
       var res = await sb.from("orders").delete().eq("id", order.id);
       if (res.error) { console.warn(res.error); toast("削除に失敗しました"); return; }
       orderOverlay.classList.remove("active");
@@ -978,10 +1007,10 @@
         row.className = "completed-row";
         row.innerHTML =
           '<div class="dot" style="background:' + pm.color + '"></div>' +
-          '<div class="info"><div class="l">' + escapeHtml(o.label) + '</div><div class="t">' + fmtTime(o.opened_at) + '〜' + fmtTime(o.closed_at) + ' ・ ' + pm.label + '</div></div>' +
+          '<div class="info"><div class="l">' + escapeHtml(orderDisplayLabel(o)) + '</div><div class="t">' + fmtTime(o.opened_at) + '〜' + fmtTime(o.closed_at) + ' ・ ' + pm.label + '</div></div>' +
           '<div class="amt">' + fmtYen(o.computedTotal) + '</div>';
         row.addEventListener("click", function(){
-          showConfirm('「' + o.label + '」(' + fmtYen(o.computedTotal) + ') のお会計履歴を削除します。よろしいですか？', async function(){
+          showConfirm('「' + orderDisplayLabel(o) + '」(' + fmtYen(o.computedTotal) + ') のお会計履歴を削除します。よろしいですか？', async function(){
             await sb.from("orders").delete().eq("id", o.id);
             await loadDay(currentDay);
             toast("履歴を削除しました");
