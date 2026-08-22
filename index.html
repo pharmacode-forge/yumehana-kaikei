@@ -1,0 +1,1183 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
+<title>間借りお会計帳</title>
+<style>
+  :root {
+    color-scheme: light;
+    --surface-1:      #fcfcfb;
+    --surface-2:      #f9f9f7;
+    --surface-card:   #ffffff;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --gridline:       #e1e0d9;
+    --border:         rgba(11,11,11,0.10);
+    --series-1:       #2a78d6; /* blue - 現金 / primary */
+    --series-2:       #eb6834; /* orange - PayPay */
+    --series-3:       #1baf7a; /* aqua - カード / success */
+    --series-4:       #eda100; /* yellow - その他 */
+    --status-good:    #0ca30c;
+    --status-critical:#d03b3b;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:where(:not([data-theme="light"])) {
+      color-scheme: dark;
+      --surface-1:      #1a1a19;
+      --surface-2:      #0d0d0d;
+      --surface-card:   #232322;
+      --text-primary:   #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted:     #898781;
+      --gridline:       #2c2c2a;
+      --border:         rgba(255,255,255,0.10);
+      --series-1:       #3987e5;
+      --series-2:       #d95926;
+      --series-3:       #199e70;
+      --series-4:       #c98500;
+      --status-good:    #0ca30c;
+      --status-critical:#e66767;
+    }
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; padding: 0; height: 100%;
+    background: var(--surface-2);
+    color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+    font-size: 16px;
+    overscroll-behavior-y: contain;
+  }
+  #app { display: flex; flex-direction: column; min-height: 100vh; }
+
+  header.topbar {
+    position: sticky; top: 0; z-index: 20;
+    background: var(--surface-1);
+    border-bottom: 1px solid var(--gridline);
+    padding: 12px 16px;
+    display: flex; align-items: center; justify-content: space-between;
+    gap: 8px;
+  }
+  header.topbar h1 { font-size: 17px; margin: 0; font-weight: 700; display:flex; align-items:center; gap:8px; }
+  .sync-dot { width:9px; height:9px; border-radius:999px; background: var(--text-muted); flex-shrink:0; }
+  .sync-dot.ok { background: var(--status-good); }
+  .sync-dot.err { background: var(--status-critical); }
+  .day-pill {
+    display: flex; align-items: center; gap: 6px;
+    background: var(--surface-2);
+    border: 1px solid var(--gridline);
+    border-radius: 999px;
+    padding: 6px 12px;
+    font-size: 13px;
+    color: var(--text-secondary);
+  }
+  .day-pill input[type=date] {
+    border: none; background: transparent; color: var(--text-primary);
+    font-size: 13px; font-family: inherit;
+  }
+
+  main { flex: 1; padding: 12px 12px 88px; max-width: 720px; width: 100%; margin: 0 auto; }
+
+  .screen { display: none; }
+  .screen.active { display: block; }
+
+  nav.tabbar {
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 30;
+    display: flex;
+    background: var(--surface-1);
+    border-top: 1px solid var(--gridline);
+    padding-bottom: env(safe-area-inset-bottom, 0);
+  }
+  nav.tabbar button {
+    flex: 1; border: none; background: transparent; color: var(--text-muted);
+    padding: 10px 4px 8px; font-size: 11px; display: flex; flex-direction: column;
+    align-items: center; gap: 3px; font-family: inherit; cursor: pointer;
+  }
+  nav.tabbar button .ic { font-size: 20px; line-height: 1; }
+  nav.tabbar button.active { color: var(--series-1); font-weight: 700; }
+
+  h2.section-title { font-size: 14px; color: var(--text-secondary); font-weight: 700; margin: 18px 0 10px; }
+  h2.section-title:first-child { margin-top: 4px; }
+
+  .grid-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px,1fr)); gap: 10px; }
+
+  .table-card {
+    background: var(--surface-card);
+    border: 1px solid var(--gridline);
+    border-radius: 14px;
+    padding: 14px;
+    cursor: pointer;
+    display: flex; flex-direction: column; gap: 6px;
+    box-shadow: 0 1px 2px rgba(11,11,11,0.04);
+  }
+  .table-card:active { transform: scale(0.98); }
+  .table-card .label { font-weight: 700; font-size: 15px; }
+  .table-card .meta { font-size: 12px; color: var(--text-muted); }
+  .table-card .amount { font-size: 20px; font-weight: 800; font-variant-numeric: tabular-nums; margin-top: 4px; }
+
+  .add-card {
+    border: 2px dashed var(--gridline);
+    border-radius: 14px;
+    display: flex; align-items: center; justify-content: center;
+    flex-direction: column; gap: 6px;
+    min-height: 96px;
+    color: var(--series-1);
+    font-weight: 700; font-size: 14px;
+    cursor: pointer; background: transparent;
+  }
+  .add-card .ic { font-size: 26px; }
+
+  .empty-state {
+    text-align: center; color: var(--text-muted); padding: 40px 16px; font-size: 14px;
+  }
+
+  button { font-family: inherit; }
+  .btn {
+    border: none; border-radius: 12px; padding: 12px 16px; font-size: 15px; font-weight: 700;
+    cursor: pointer; width: 100%;
+  }
+  .btn-primary { background: var(--series-1); color: #fff; }
+  .btn-success { background: var(--series-3); color: #fff; }
+  .btn-outline { background: transparent; border: 1px solid var(--gridline); color: var(--text-primary); }
+  .btn-danger { background: transparent; color: var(--status-critical); border: 1px solid var(--status-critical); }
+  .btn-sm { padding: 8px 12px; font-size: 13px; border-radius: 10px; width: auto; }
+
+  /* Overlay / detail sheet */
+  .overlay {
+    position: fixed; inset: 0; background: rgba(11,11,11,0.45);
+    display: none; align-items: flex-end; z-index: 50;
+  }
+  .overlay.active { display: flex; }
+  .sheet {
+    background: var(--surface-1);
+    width: 100%; max-height: 92vh; overflow-y: auto;
+    border-radius: 18px 18px 0 0;
+    padding: 14px 16px calc(20px + env(safe-area-inset-bottom, 0));
+    margin: 0 auto; max-width: 720px;
+  }
+  .sheet-handle { width: 40px; height: 4px; background: var(--gridline); border-radius: 999px; margin: 0 auto 12px; }
+  .sheet-header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+  .sheet-header input.label-input {
+    font-size: 19px; font-weight: 800; border: none; background: transparent; color: var(--text-primary);
+    flex: 1; min-width: 0; padding: 4px 0;
+  }
+  .icon-btn {
+    border: none; background: var(--surface-2); color: var(--text-secondary);
+    width: 34px; height: 34px; border-radius: 999px; font-size: 16px;
+    display: flex; align-items: center; justify-content: center; cursor: pointer;
+  }
+
+  .menu-cat { font-size: 12px; font-weight: 700; color: var(--text-muted); margin: 14px 0 8px; }
+  .menu-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(110px,1fr)); gap: 8px; }
+  .menu-item-btn {
+    border: 1px solid var(--gridline); background: var(--surface-card);
+    border-radius: 12px; padding: 10px 8px; text-align: left; cursor: pointer;
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .menu-item-btn:active { background: var(--surface-2); }
+  .menu-item-btn .n { font-size: 13px; font-weight: 700; }
+  .menu-item-btn .p { font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+
+  .order-list { margin-top: 14px; border-top: 1px solid var(--gridline); }
+  .order-row {
+    display: flex; align-items: center; gap: 8px; padding: 10px 0; border-bottom: 1px solid var(--gridline);
+  }
+  .order-row .name { flex: 1; font-size: 14px; }
+  .order-row .line-total { font-size: 13px; color: var(--text-muted); width: 64px; text-align: right; font-variant-numeric: tabular-nums; }
+  .qty-stepper { display: flex; align-items: center; gap: 8px; }
+  .qty-stepper button {
+    width: 28px; height: 28px; border-radius: 999px; border: 1px solid var(--gridline);
+    background: var(--surface-card); font-size: 16px; cursor: pointer; color: var(--text-primary);
+  }
+  .qty-stepper .qty { min-width: 18px; text-align: center; font-weight: 700; font-variant-numeric: tabular-nums; }
+
+  .total-row {
+    display: flex; align-items: baseline; justify-content: space-between;
+    padding: 14px 0 6px; font-weight: 800;
+  }
+  .total-row .amount { font-size: 26px; font-variant-numeric: tabular-nums; }
+
+  .sheet-actions { display: flex; gap: 8px; margin-top: 14px; }
+
+  /* Payment modal */
+  .pay-methods { display: grid; grid-template-columns: repeat(2,1fr); gap: 8px; margin: 14px 0; }
+  .pay-methods button {
+    border: 1px solid var(--gridline); background: var(--surface-card); border-radius: 12px;
+    padding: 14px 8px; font-size: 14px; font-weight: 700; cursor: pointer; color: var(--text-primary);
+  }
+  .pay-methods button.selected { border-color: var(--series-1); background: color-mix(in srgb, var(--series-1) 12%, var(--surface-card)); color: var(--series-1); }
+
+  /* Menu edit screen */
+  .menu-edit-row {
+    display: flex; align-items: center; gap: 8px; padding: 10px; background: var(--surface-card);
+    border: 1px solid var(--gridline); border-radius: 12px; margin-bottom: 8px;
+  }
+  .menu-edit-row input[type=text] { flex: 1; min-width: 0; border: 1px solid var(--gridline); border-radius: 8px; padding: 8px; font-size: 14px; background: var(--surface-1); color: var(--text-primary); }
+  .menu-edit-row input[type=number] { width: 80px; border: 1px solid var(--gridline); border-radius: 8px; padding: 8px; font-size: 14px; background: var(--surface-1); color: var(--text-primary); }
+  .menu-edit-row select { border: 1px solid var(--gridline); border-radius: 8px; padding: 8px; font-size: 13px; background: var(--surface-1); color: var(--text-primary); }
+
+  .add-menu-form {
+    display: flex; flex-wrap: wrap; gap: 8px; background: var(--surface-card);
+    border: 1px dashed var(--gridline); border-radius: 12px; padding: 12px; margin-bottom: 16px;
+  }
+  .add-menu-form input, .add-menu-form select { border: 1px solid var(--gridline); border-radius: 8px; padding: 9px; font-size: 14px; background: var(--surface-1); color: var(--text-primary); }
+  .add-menu-form input[type=text].name { flex: 2; min-width: 100px; }
+  .add-menu-form input[type=text].cat { flex: 1; min-width: 80px; }
+  .add-menu-form input[type=number] { width: 90px; }
+
+  /* Summary screen */
+  .mode-toggle { display: flex; gap: 8px; }
+  .mode-toggle button {
+    flex: 1; border: 1px solid var(--gridline); background: var(--surface-card); border-radius: 10px;
+    padding: 9px; font-size: 13px; font-weight: 700; color: var(--text-secondary); cursor: pointer;
+  }
+  .mode-toggle button.active { background: var(--series-1); border-color: var(--series-1); color: #fff; }
+  .day-pill input[type=month] { border: none; background: transparent; color: var(--text-primary); font-size: 13px; font-family: inherit; }
+  .stat-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(100px,1fr)); gap: 8px; margin-bottom: 18px; }
+  .stat-tile.profit .val.negative { color: var(--status-critical); }
+  .stat-tile.profit .val.positive { color: var(--status-good); }
+  .day-row {
+    display: flex; align-items: center; gap: 10px; padding: 10px; background: var(--surface-card);
+    border: 1px solid var(--gridline); border-radius: 12px; margin-bottom: 8px;
+  }
+  .day-row .info { flex: 1; min-width: 0; }
+  .day-row .info .l { font-size: 14px; font-weight: 700; }
+  .day-row .info .t { font-size: 11px; color: var(--text-muted); }
+  .day-row .amt { font-size: 15px; font-weight: 800; font-variant-numeric: tabular-nums; text-align: right; }
+  .day-row .amt .profit-sub { display:block; font-size: 11px; font-weight: 700; }
+  .day-row .amt .profit-sub.negative { color: var(--status-critical); }
+  .day-row .amt .profit-sub.positive { color: var(--status-good); }
+  .stat-tile { background: var(--surface-card); border: 1px solid var(--gridline); border-radius: 12px; padding: 12px 10px; }
+  .stat-tile .lbl { font-size: 11px; color: var(--text-muted); margin-bottom: 4px; }
+  .stat-tile .val { font-size: 19px; font-weight: 800; font-variant-numeric: tabular-nums; }
+
+  .bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+  .bar-row .bar-label { width: 92px; font-size: 12px; color: var(--text-secondary); flex-shrink: 0; }
+  .bar-track { flex: 1; height: 10px; background: var(--gridline); border-radius: 999px; overflow: hidden; }
+  .bar-fill { height: 100%; border-radius: 999px; }
+  .bar-row .bar-val { width: 74px; text-align: right; font-size: 12px; font-variant-numeric: tabular-nums; color: var(--text-secondary); flex-shrink: 0; }
+
+  .completed-row {
+    display: flex; align-items: center; gap: 10px; padding: 10px; background: var(--surface-card);
+    border: 1px solid var(--gridline); border-radius: 12px; margin-bottom: 8px; cursor: pointer;
+  }
+  .completed-row .dot { width: 8px; height: 8px; border-radius: 999px; flex-shrink: 0; }
+  .completed-row .info { flex: 1; min-width: 0; }
+  .completed-row .info .l { font-size: 14px; font-weight: 700; }
+  .completed-row .info .t { font-size: 11px; color: var(--text-muted); }
+  .completed-row .amt { font-size: 15px; font-weight: 800; font-variant-numeric: tabular-nums; }
+
+  .toast {
+    position: fixed; bottom: 78px; left: 50%; transform: translateX(-50%);
+    background: var(--text-primary); color: var(--surface-1); padding: 10px 18px;
+    border-radius: 999px; font-size: 13px; font-weight: 700; z-index: 80;
+    opacity: 0; pointer-events: none; transition: opacity .25s ease;
+  }
+  .toast.show { opacity: 1; }
+
+  .confirm-box {
+    background: var(--surface-1); border-radius: 16px; padding: 20px; max-width: 320px; width: 90%;
+    margin: auto; text-align: center;
+  }
+  .confirm-box p { font-size: 14px; color: var(--text-secondary); margin: 8px 0 18px; }
+  .confirm-box .row { display: flex; gap: 8px; }
+
+  /* Passphrase lock screen */
+  .lock-screen {
+    position: fixed; inset: 0; z-index: 100;
+    background: var(--surface-2);
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px;
+  }
+  .lock-screen.hidden { display: none; }
+  .lock-box { width: 100%; max-width: 320px; text-align: center; }
+  .lock-box .ic { font-size: 40px; margin-bottom: 8px; }
+  .lock-box h2 { font-size: 17px; margin: 0 0 4px; }
+  .lock-box p { font-size: 13px; color: var(--text-secondary); margin: 0 0 20px; }
+  .lock-box input[type=password] {
+    width: 100%; border: 1px solid var(--gridline); border-radius: 12px; padding: 14px;
+    font-size: 16px; text-align: center; background: var(--surface-card); color: var(--text-primary);
+    margin-bottom: 12px;
+  }
+  .lock-box .err-msg { color: var(--status-critical); font-size: 13px; min-height: 18px; margin-bottom: 8px; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header class="topbar">
+    <h1><span class="sync-dot" id="syncDot" title="同期状態"></span>🍶 間借りお会計帳</h1>
+    <div class="day-pill">
+      <span>営業日</span>
+      <input type="date" id="dayPicker">
+    </div>
+  </header>
+
+  <main>
+    <!-- 卓一覧 -->
+    <section class="screen active" id="screen-tables">
+      <h2 class="section-title">営業中のお客様</h2>
+      <div class="grid-cards" id="activeTablesGrid"></div>
+
+      <div id="completedSummaryLink"></div>
+    </section>
+
+    <!-- メニュー編集 -->
+    <section class="screen" id="screen-menu">
+      <h2 class="section-title">メニューを追加</h2>
+      <div class="add-menu-form">
+        <input type="text" class="name" id="newItemName" placeholder="商品名">
+        <input type="number" id="newItemPrice" placeholder="価格" min="0" step="10">
+        <input type="text" class="cat" id="newItemCat" placeholder="カテゴリ（例: ドリンク）">
+        <button class="btn btn-primary btn-sm" id="addMenuItemBtn">追加</button>
+      </div>
+      <div id="menuEditList"></div>
+    </section>
+
+    <!-- 仕入れ -->
+    <section class="screen" id="screen-purchase">
+      <h2 class="section-title">仕入れを記録</h2>
+      <div class="add-menu-form">
+        <input type="text" class="name" id="newPurchaseName" placeholder="品名（例: 氷・生ビール樽）">
+        <input type="number" id="newPurchaseAmount" placeholder="金額" min="0" step="10">
+        <input type="text" class="cat" id="newPurchaseCat" placeholder="カテゴリ（例: お酒・氷）">
+        <button class="btn btn-primary btn-sm" id="addPurchaseBtn">追加</button>
+      </div>
+      <div class="total-row"><span>本日の仕入れ合計</span><span class="amount" id="purchaseTotal">¥0</span></div>
+      <div id="purchaseList"></div>
+    </section>
+
+    <!-- 集計 -->
+    <section class="screen" id="screen-summary">
+      <div class="mode-toggle" id="summaryModeToggle">
+        <button class="mode-btn active" data-mode="day">日次</button>
+        <button class="mode-btn" data-mode="month">月次</button>
+      </div>
+      <div class="day-pill" id="monthPickerRow" style="display:none; margin:10px 0 0; width:fit-content;">
+        <span>対象月</span>
+        <input type="month" id="monthPicker">
+      </div>
+      <h2 class="section-title" id="summaryTitle">本日の集計</h2>
+      <div class="stat-tiles" id="statTiles"></div>
+      <h2 class="section-title">支払い方法の内訳</h2>
+      <div id="paymentBars"></div>
+      <h2 class="section-title" id="breakdownTitle">お会計履歴</h2>
+      <div id="completedList"></div>
+    </section>
+  </main>
+
+  <nav class="tabbar">
+    <button class="tab-btn active" data-screen="screen-tables"><span class="ic">🍽️</span>卓・お客様</button>
+    <button class="tab-btn" data-screen="screen-menu"><span class="ic">📋</span>メニュー</button>
+    <button class="tab-btn" data-screen="screen-purchase"><span class="ic">🧾</span>仕入れ</button>
+    <button class="tab-btn" data-screen="screen-summary"><span class="ic">📊</span>集計</button>
+  </nav>
+</div>
+
+<!-- Order detail sheet -->
+<div class="overlay" id="orderOverlay">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-header">
+      <input type="text" class="label-input" id="orderLabelInput" placeholder="卓番・お名前">
+      <button class="icon-btn" id="closeOrderSheet">✕</button>
+    </div>
+    <div id="menuPicker"></div>
+    <div class="order-list" id="orderLines"></div>
+    <div class="total-row"><span>合計</span><span class="amount" id="orderTotal">¥0</span></div>
+    <div class="sheet-actions">
+      <button class="btn btn-danger btn-sm" id="deleteOrderBtn">卓を削除</button>
+      <button class="btn btn-success" id="checkoutBtn">会計する</button>
+    </div>
+  </div>
+</div>
+
+<!-- Payment method sheet -->
+<div class="overlay" id="payOverlay">
+  <div class="sheet">
+    <div class="sheet-handle"></div>
+    <div class="sheet-header"><strong>支払い方法を選択</strong><button class="icon-btn" id="closePaySheet">✕</button></div>
+    <div class="total-row"><span>お会計金額</span><span class="amount" id="payAmount">¥0</span></div>
+    <div class="pay-methods" id="payMethodButtons"></div>
+    <div class="sheet-actions">
+      <button class="btn btn-primary" id="confirmPayBtn">会計を確定する</button>
+    </div>
+  </div>
+</div>
+
+<!-- Generic confirm overlay -->
+<div class="overlay" id="confirmOverlay">
+  <div class="confirm-box">
+    <p id="confirmText"></p>
+    <div class="row">
+      <button class="btn btn-outline btn-sm" id="confirmCancelBtn" style="flex:1">キャンセル</button>
+      <button class="btn btn-danger btn-sm" id="confirmOkBtn" style="flex:1">削除する</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- Passphrase lock screen -->
+<div class="lock-screen hidden" id="lockScreen">
+  <div class="lock-box">
+    <div class="ic">🔒</div>
+    <h2>合言葉を入力してください</h2>
+    <p>スタッフだけが使えるように、合言葉で保護しています</p>
+    <input type="password" id="lockPinInput" placeholder="合言葉" autocomplete="off">
+    <div class="err-msg" id="lockErrMsg"></div>
+    <button class="btn btn-primary" id="lockSubmitBtn">入る</button>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script>
+(function(){
+  "use strict";
+
+  if (!window.supabase || !window.supabase.createClient) {
+    document.body.innerHTML =
+      '<div style="padding:32px 20px;text-align:center;font-family:system-ui,sans-serif;color:#52514e">' +
+      '<div style="font-size:32px;margin-bottom:8px">📡</div>' +
+      '<div style="font-weight:700;font-size:16px;color:#0b0b0b;margin-bottom:6px">読み込みに失敗しました</div>' +
+      '<div style="font-size:14px">インターネット接続をご確認のうえ、ページを再読み込みしてください。</div>' +
+      '</div>';
+    return;
+  }
+
+  // ---------- Supabase connection (shared data for all staff/devices) ----------
+  var SUPABASE_URL = "https://qpgtgcttlfmfmxiuqqjn.supabase.co";
+  var SUPABASE_KEY = "sb_publishable_NMFhqlx3A_QrAH5wkVYyag_iIVDcVy5";
+  var PIN_STORAGE_KEY = "izakaya-kaikei-pin";
+
+  function makeClient(pin){
+    return window.supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
+      global: { headers: { "x-app-pin": pin || "" } }
+    });
+  }
+  // Used only to verify a candidate passphrase (check_pin works regardless of header).
+  var sb = makeClient("");
+
+  var PAY_METHODS = [
+    { id: "cash", label: "現金", color: "var(--series-1)" },
+    { id: "paypay", label: "PayPay", color: "var(--series-2)" },
+    { id: "card", label: "カード", color: "var(--series-3)" },
+    { id: "other", label: "その他", color: "var(--series-4)" }
+  ];
+
+  function todayStr(){
+    var d = new Date();
+    var tz = d.getTimezoneOffset() * 60000;
+    return new Date(d - tz).toISOString().slice(0,10);
+  }
+
+  function fmtYen(n){ return "¥" + Math.round(n).toLocaleString("ja-JP"); }
+
+  function fmtTime(iso){
+    if (!iso) return "";
+    var d = new Date(iso);
+    return (""+d.getHours()).padStart(2,"0") + ":" + (""+d.getMinutes()).padStart(2,"0");
+  }
+
+  function escapeHtml(s){
+    var d = document.createElement("div");
+    d.textContent = s == null ? "" : String(s);
+    return d.innerHTML;
+  }
+
+  function toast(msg){
+    var t = document.getElementById("toast");
+    t.textContent = msg;
+    t.classList.add("show");
+    clearTimeout(toast._tm);
+    toast._tm = setTimeout(function(){ t.classList.remove("show"); }, 1800);
+  }
+
+  function setSyncDot(state){
+    var el = document.getElementById("syncDot");
+    if (!el) return;
+    el.className = "sync-dot" + (state === "ok" ? " ok" : state === "err" ? " err" : "");
+  }
+
+  // ---------- App state (mirrors the current day / menu, refreshed from Supabase) ----------
+  var menu = [];
+  var dayData = { open: [], completed: [], purchases: [] };
+  var currentDay = todayStr();
+  var currentScreen = "screen-tables";
+  var summaryMode = "day"; // "day" | "month"
+  var activeOrderId = null;
+  var pendingPayMethod = null;
+  var confirmCallback = null;
+  var labelSaveTimer = null;
+
+  function orderTotalFromItems(items){
+    return (items || []).reduce(function(s, it){ return s + it.price * it.qty; }, 0);
+  }
+
+  function normalizeOrder(o){
+    o.items = (o.order_items || []).slice().sort(function(a,b){
+      return (a.created_at || "").localeCompare(b.created_at || "");
+    });
+    o.computedTotal = o.status === "completed" && o.total != null ? o.total : orderTotalFromItems(o.items);
+    return o;
+  }
+
+  function findOrder(id){
+    return dayData.open.find(function(o){ return o.id === id; }) ||
+           dayData.completed.find(function(o){ return o.id === id; });
+  }
+
+  // ---------- Data loading ----------
+  async function loadMenu(){
+    var res = await sb.from("menu_items").select("*").order("category").order("name");
+    if (res.error) { console.warn(res.error); setSyncDot("err"); toast("メニューの取得に失敗しました"); return; }
+    menu = res.data || [];
+    renderMenuPicker();
+    renderMenuEdit();
+  }
+
+  async function loadDay(day){
+    var ordersRes = await sb.from("orders")
+      .select("*, order_items(*)")
+      .eq("business_day", day)
+      .order("opened_at", { ascending: true });
+    var purchasesRes = await sb.from("purchases")
+      .select("*")
+      .eq("business_day", day)
+      .order("created_at", { ascending: true });
+
+    if (ordersRes.error || purchasesRes.error) {
+      console.warn(ordersRes.error || purchasesRes.error);
+      setSyncDot("err");
+      toast("データの取得に失敗しました");
+      return;
+    }
+    setSyncDot("ok");
+    var orders = (ordersRes.data || []).map(normalizeOrder);
+    dayData.open = orders.filter(function(o){ return o.status === "open"; });
+    dayData.completed = orders.filter(function(o){ return o.status === "completed"; });
+    dayData.purchases = purchasesRes.data || [];
+
+    renderActiveTables();
+    renderPurchases();
+    if (activeOrderId) {
+      if (findOrder(activeOrderId)) renderOrderLines();
+      else { document.getElementById("orderOverlay").classList.remove("active"); activeOrderId = null; }
+    }
+    if (currentScreen === "screen-summary" && summaryMode === "day") renderDaySummary();
+  }
+
+  // ---------- Navigation ----------
+  var tabBtns = document.querySelectorAll(".tab-btn");
+  tabBtns.forEach(function(btn){
+    btn.addEventListener("click", function(){
+      tabBtns.forEach(function(b){ b.classList.remove("active"); });
+      btn.classList.add("active");
+      document.querySelectorAll(".screen").forEach(function(s){ s.classList.remove("active"); });
+      document.getElementById(btn.dataset.screen).classList.add("active");
+      currentScreen = btn.dataset.screen;
+      if (currentScreen === "screen-summary") renderSummary();
+      if (currentScreen === "screen-menu") renderMenuEdit();
+      if (currentScreen === "screen-purchase") renderPurchases();
+    });
+  });
+
+  var dayPicker = document.getElementById("dayPicker");
+  dayPicker.value = currentDay;
+  dayPicker.addEventListener("change", async function(){
+    currentDay = dayPicker.value || todayStr();
+    await loadDay(currentDay);
+  });
+
+  // ---------- Active tables screen ----------
+  function renderActiveTables(){
+    var grid = document.getElementById("activeTablesGrid");
+    grid.innerHTML = "";
+
+    dayData.open.forEach(function(order){
+      var card = document.createElement("div");
+      card.className = "table-card";
+      var itemCount = order.items.reduce(function(s,it){ return s+it.qty; }, 0);
+      card.innerHTML =
+        '<div class="label">' + escapeHtml(order.label) + '</div>' +
+        '<div class="meta">' + itemCount + '点 ・ ' + fmtTime(order.opened_at) + '〜</div>' +
+        '<div class="amount">' + fmtYen(order.computedTotal) + '</div>';
+      card.addEventListener("click", function(){ openOrderSheet(order.id); });
+      grid.appendChild(card);
+    });
+
+    var addCard = document.createElement("div");
+    addCard.className = "add-card";
+    addCard.innerHTML = '<span class="ic">＋</span><span>新しいお客様</span>';
+    addCard.addEventListener("click", addNewTable);
+    grid.appendChild(addCard);
+  }
+
+  async function addNewTable(){
+    var num = dayData.open.length + dayData.completed.length + 1;
+    var res = await sb.from("orders").insert({
+      business_day: currentDay, label: num + "卓", status: "open"
+    }).select().single();
+    if (res.error) { console.warn(res.error); toast("卓の追加に失敗しました"); return; }
+    await loadDay(currentDay);
+    openOrderSheet(res.data.id);
+  }
+
+  // ---------- Order detail sheet ----------
+  var orderOverlay = document.getElementById("orderOverlay");
+  var orderLabelInput = document.getElementById("orderLabelInput");
+
+  function openOrderSheet(id){
+    activeOrderId = id;
+    var order = findOrder(id);
+    if (!order) return;
+    orderLabelInput.value = order.label;
+    renderMenuPicker();
+    renderOrderLines();
+    orderOverlay.classList.add("active");
+  }
+
+  function closeOrderSheet(){
+    orderOverlay.classList.remove("active");
+    activeOrderId = null;
+    renderActiveTables();
+  }
+
+  document.getElementById("closeOrderSheet").addEventListener("click", closeOrderSheet);
+  orderOverlay.addEventListener("click", function(e){ if (e.target === orderOverlay) closeOrderSheet(); });
+
+  orderLabelInput.addEventListener("input", function(){
+    var order = findOrder(activeOrderId);
+    if (!order) return;
+    order.label = orderLabelInput.value || "お客様";
+    var idToSave = activeOrderId;
+    var valToSave = order.label;
+    clearTimeout(labelSaveTimer);
+    labelSaveTimer = setTimeout(async function(){
+      await sb.from("orders").update({ label: valToSave }).eq("id", idToSave);
+    }, 500);
+  });
+
+  function renderMenuPicker(){
+    var el = document.getElementById("menuPicker");
+    el.innerHTML = "";
+    if (menu.length === 0) {
+      el.innerHTML = '<div class="empty-state">メニューが未登録です。「メニュー」タブから追加してください。</div>';
+      return;
+    }
+    var byCat = {};
+    var catOrder = [];
+    menu.forEach(function(item){
+      var cat = item.category || "その他";
+      if (!byCat[cat]) { byCat[cat] = []; catOrder.push(cat); }
+      byCat[cat].push(item);
+    });
+    catOrder.forEach(function(cat){
+      var h = document.createElement("div");
+      h.className = "menu-cat";
+      h.textContent = cat;
+      el.appendChild(h);
+      var g = document.createElement("div");
+      g.className = "menu-grid";
+      byCat[cat].forEach(function(item){
+        var b = document.createElement("button");
+        b.className = "menu-item-btn";
+        b.innerHTML = '<span class="n">' + escapeHtml(item.name) + '</span><span class="p">' + fmtYen(item.price) + '</span>';
+        b.addEventListener("click", function(){ addItemToOrder(item); });
+        g.appendChild(b);
+      });
+      el.appendChild(g);
+    });
+  }
+
+  async function addItemToOrder(menuItem){
+    var order = findOrder(activeOrderId);
+    if (!order) return;
+    var line = order.items.find(function(it){ return it.menu_item_id === menuItem.id; });
+    var res;
+    if (line) {
+      res = await sb.from("order_items").update({ qty: line.qty + 1 }).eq("id", line.id);
+    } else {
+      res = await sb.from("order_items").insert({
+        order_id: order.id, menu_item_id: menuItem.id, name: menuItem.name, price: menuItem.price, qty: 1
+      });
+    }
+    if (res.error) { console.warn(res.error); toast("追加に失敗しました"); return; }
+    await loadDay(currentDay);
+  }
+
+  function renderOrderLines(){
+    var order = findOrder(activeOrderId);
+    if (!order) return;
+    var el = document.getElementById("orderLines");
+    el.innerHTML = "";
+    if (order.items.length === 0) {
+      el.innerHTML = '<div class="empty-state">メニューをタップして追加してください</div>';
+    } else {
+      order.items.forEach(function(it){
+        var row = document.createElement("div");
+        row.className = "order-row";
+        row.innerHTML =
+          '<div class="name">' + escapeHtml(it.name) + '</div>' +
+          '<div class="qty-stepper">' +
+            '<button data-act="dec">−</button>' +
+            '<span class="qty">' + it.qty + '</span>' +
+            '<button data-act="inc">＋</button>' +
+          '</div>' +
+          '<div class="line-total">' + fmtYen(it.price * it.qty) + '</div>';
+        row.querySelector('[data-act="inc"]').addEventListener("click", async function(){
+          await sb.from("order_items").update({ qty: it.qty + 1 }).eq("id", it.id);
+          await loadDay(currentDay);
+        });
+        row.querySelector('[data-act="dec"]').addEventListener("click", async function(){
+          if (it.qty - 1 <= 0) { await sb.from("order_items").delete().eq("id", it.id); }
+          else { await sb.from("order_items").update({ qty: it.qty - 1 }).eq("id", it.id); }
+          await loadDay(currentDay);
+        });
+        el.appendChild(row);
+      });
+    }
+    document.getElementById("orderTotal").textContent = fmtYen(order.computedTotal);
+  }
+
+  document.getElementById("deleteOrderBtn").addEventListener("click", function(){
+    var order = findOrder(activeOrderId);
+    if (!order) return;
+    showConfirm("「" + order.label + "」を削除します。よろしいですか？", async function(){
+      var res = await sb.from("orders").delete().eq("id", order.id);
+      if (res.error) { console.warn(res.error); toast("削除に失敗しました"); return; }
+      orderOverlay.classList.remove("active");
+      activeOrderId = null;
+      await loadDay(currentDay);
+      toast("削除しました");
+    });
+  });
+
+  // ---------- Checkout / payment ----------
+  var payOverlay = document.getElementById("payOverlay");
+
+  document.getElementById("checkoutBtn").addEventListener("click", function(){
+    var order = findOrder(activeOrderId);
+    if (!order) return;
+    if (order.items.length === 0) { toast("商品を追加してください"); return; }
+    pendingPayMethod = null;
+    document.getElementById("payAmount").textContent = fmtYen(order.computedTotal);
+    var wrap = document.getElementById("payMethodButtons");
+    wrap.innerHTML = "";
+    PAY_METHODS.forEach(function(pm){
+      var b = document.createElement("button");
+      b.textContent = pm.label;
+      b.addEventListener("click", function(){
+        pendingPayMethod = pm.id;
+        wrap.querySelectorAll("button").forEach(function(x){ x.classList.remove("selected"); });
+        b.classList.add("selected");
+      });
+      wrap.appendChild(b);
+    });
+    payOverlay.classList.add("active");
+  });
+
+  document.getElementById("closePaySheet").addEventListener("click", function(){
+    payOverlay.classList.remove("active");
+  });
+  payOverlay.addEventListener("click", function(e){ if (e.target === payOverlay) payOverlay.classList.remove("active"); });
+
+  document.getElementById("confirmPayBtn").addEventListener("click", async function(){
+    if (!pendingPayMethod) { toast("支払い方法を選択してください"); return; }
+    var order = findOrder(activeOrderId);
+    if (!order) return;
+    var res = await sb.from("orders").update({
+      status: "completed",
+      payment_method: pendingPayMethod,
+      total: order.computedTotal,
+      closed_at: new Date().toISOString()
+    }).eq("id", order.id);
+    if (res.error) { console.warn(res.error); toast("会計に失敗しました"); return; }
+    payOverlay.classList.remove("active");
+    orderOverlay.classList.remove("active");
+    activeOrderId = null;
+    await loadDay(currentDay);
+    toast("会計が完了しました");
+  });
+
+  // ---------- Menu edit screen ----------
+  function renderMenuEdit(){
+    var el = document.getElementById("menuEditList");
+    el.innerHTML = "";
+    if (menu.length === 0) {
+      el.innerHTML = '<div class="empty-state">メニューがありません。上のフォームから追加してください。</div>';
+      return;
+    }
+    menu.forEach(function(item){
+      var row = document.createElement("div");
+      row.className = "menu-edit-row";
+      row.innerHTML =
+        '<input type="text" value="' + escapeHtml(item.name) + '" data-f="name">' +
+        '<input type="number" value="' + item.price + '" min="0" step="10" data-f="price">' +
+        '<input type="text" value="' + escapeHtml(item.category) + '" data-f="category" style="width:90px">' +
+        '<button class="icon-btn" data-act="del">🗑</button>';
+      row.querySelector('[data-f="name"]').addEventListener("change", async function(e){
+        await sb.from("menu_items").update({ name: e.target.value || item.name }).eq("id", item.id);
+        await loadMenu();
+      });
+      row.querySelector('[data-f="price"]').addEventListener("change", async function(e){
+        var p = Math.max(0, parseInt(e.target.value,10) || 0);
+        await sb.from("menu_items").update({ price: p }).eq("id", item.id);
+        await loadMenu();
+      });
+      row.querySelector('[data-f="category"]').addEventListener("change", async function(e){
+        await sb.from("menu_items").update({ category: e.target.value || "その他" }).eq("id", item.id);
+        await loadMenu();
+      });
+      row.querySelector('[data-act="del"]').addEventListener("click", function(){
+        showConfirm('「' + item.name + '」を削除します。よろしいですか？', async function(){
+          await sb.from("menu_items").delete().eq("id", item.id);
+          await loadMenu();
+          toast("削除しました");
+        });
+      });
+      el.appendChild(row);
+    });
+  }
+
+  document.getElementById("addMenuItemBtn").addEventListener("click", async function(){
+    var nameEl = document.getElementById("newItemName");
+    var priceEl = document.getElementById("newItemPrice");
+    var catEl = document.getElementById("newItemCat");
+    var name = nameEl.value.trim();
+    var price = parseInt(priceEl.value, 10);
+    if (!name) { toast("商品名を入力してください"); return; }
+    if (isNaN(price) || price < 0) { toast("価格を入力してください"); return; }
+    var res = await sb.from("menu_items").insert({ name: name, price: price, category: catEl.value.trim() || "その他" });
+    if (res.error) { console.warn(res.error); toast("追加に失敗しました"); return; }
+    nameEl.value = ""; priceEl.value = ""; catEl.value = "";
+    await loadMenu();
+    toast("メニューを追加しました");
+  });
+
+  // ---------- 仕入れ (purchases) screen ----------
+  function purchaseTotalOf(list){
+    return (list || []).reduce(function(sum, p){ return sum + p.amount; }, 0);
+  }
+
+  function renderPurchases(){
+    document.getElementById("purchaseTotal").textContent = fmtYen(purchaseTotalOf(dayData.purchases));
+
+    var el = document.getElementById("purchaseList");
+    el.innerHTML = "";
+    if (dayData.purchases.length === 0) {
+      el.innerHTML = '<div class="empty-state">まだ仕入れの記録がありません</div>';
+      return;
+    }
+    dayData.purchases.slice().reverse().forEach(function(p){
+      var row = document.createElement("div");
+      row.className = "menu-edit-row";
+      row.innerHTML =
+        '<div style="flex:1;min-width:0">' +
+          '<div style="font-weight:700;font-size:14px">' + escapeHtml(p.name) + '</div>' +
+          '<div style="font-size:11px;color:var(--text-muted)">' + fmtTime(p.created_at) + ' ・ ' + escapeHtml(p.category || "その他") + '</div>' +
+        '</div>' +
+        '<div style="font-weight:800;font-variant-numeric:tabular-nums">' + fmtYen(p.amount) + '</div>' +
+        '<button class="icon-btn" data-act="del">🗑</button>';
+      row.querySelector('[data-act="del"]').addEventListener("click", function(){
+        showConfirm('「' + p.name + '」(' + fmtYen(p.amount) + ') の仕入れ記録を削除します。よろしいですか？', async function(){
+          await sb.from("purchases").delete().eq("id", p.id);
+          await loadDay(currentDay);
+          toast("削除しました");
+        });
+      });
+      el.appendChild(row);
+    });
+  }
+
+  document.getElementById("addPurchaseBtn").addEventListener("click", async function(){
+    var nameEl = document.getElementById("newPurchaseName");
+    var amountEl = document.getElementById("newPurchaseAmount");
+    var catEl = document.getElementById("newPurchaseCat");
+    var name = nameEl.value.trim();
+    var amount = parseInt(amountEl.value, 10);
+    if (!name) { toast("品名を入力してください"); return; }
+    if (isNaN(amount) || amount < 0) { toast("金額を入力してください"); return; }
+    var res = await sb.from("purchases").insert({
+      business_day: currentDay, name: name, amount: amount, category: catEl.value.trim() || "その他"
+    });
+    if (res.error) { console.warn(res.error); toast("記録に失敗しました"); return; }
+    nameEl.value = ""; amountEl.value = ""; catEl.value = "";
+    await loadDay(currentDay);
+    toast("仕入れを記録しました");
+  });
+
+  // ---------- Summary screen ----------
+  function tileHtml(lbl, val, profitClass){
+    var cls = "stat-tile" + (profitClass ? " profit" : "");
+    var valCls = "val" + (profitClass ? " " + profitClass : "");
+    return '<div class="' + cls + '"><div class="lbl">' + lbl + '</div><div class="' + valCls + '">' + val + '</div></div>';
+  }
+
+  function renderStatTiles(totalSales, customerCount, costTotal){
+    var avg = customerCount ? Math.round(totalSales / customerCount) : 0;
+    var profit = totalSales - costTotal;
+    document.getElementById("statTiles").innerHTML =
+      tileHtml("売上合計", fmtYen(totalSales)) +
+      tileHtml("会計件数", customerCount + "件") +
+      tileHtml("客単価", fmtYen(avg)) +
+      tileHtml("仕入れ合計", fmtYen(costTotal)) +
+      tileHtml("粗利益", (profit < 0 ? "-" : "") + fmtYen(Math.abs(profit)), profit >= 0 ? "positive" : "negative");
+  }
+
+  function renderPaymentBars(byMethod){
+    var maxVal = Math.max.apply(null, PAY_METHODS.map(function(pm){ return byMethod[pm.id]; }).concat([1]));
+    var total = PAY_METHODS.reduce(function(s,pm){ return s + byMethod[pm.id]; }, 0);
+    var barsEl = document.getElementById("paymentBars");
+    if (total === 0) {
+      barsEl.innerHTML = '<div class="empty-state">まだお会計がありません</div>';
+      return;
+    }
+    barsEl.innerHTML = "";
+    PAY_METHODS.forEach(function(pm){
+      var val = byMethod[pm.id];
+      var pct = maxVal ? (val / maxVal * 100) : 0;
+      var row = document.createElement("div");
+      row.className = "bar-row";
+      row.innerHTML =
+        '<div class="bar-label">' + pm.label + '</div>' +
+        '<div class="bar-track"><div class="bar-fill" style="width:' + pct + '%; background:' + pm.color + '"></div></div>' +
+        '<div class="bar-val">' + fmtYen(val) + '</div>';
+      barsEl.appendChild(row);
+    });
+  }
+
+  function renderSummary(){
+    if (summaryMode === "month") renderMonthSummary();
+    else renderDaySummary();
+  }
+
+  function renderDaySummary(){
+    document.getElementById("summaryTitle").textContent = currentDay + " の集計";
+    document.getElementById("breakdownTitle").textContent = "お会計履歴";
+
+    var completed = dayData.completed;
+    var totalSales = completed.reduce(function(s,o){ return s + o.computedTotal; }, 0);
+    var costTotal = purchaseTotalOf(dayData.purchases);
+    renderStatTiles(totalSales, completed.length, costTotal);
+
+    var byMethod = {};
+    PAY_METHODS.forEach(function(pm){ byMethod[pm.id] = 0; });
+    completed.forEach(function(o){ byMethod[o.payment_method] = (byMethod[o.payment_method]||0) + o.computedTotal; });
+    renderPaymentBars(byMethod);
+
+    var listEl = document.getElementById("completedList");
+    listEl.innerHTML = "";
+    if (completed.length === 0) {
+      listEl.innerHTML = '<div class="empty-state">お会計履歴がありません</div>';
+    } else {
+      completed.slice().reverse().forEach(function(o){
+        var pm = PAY_METHODS.find(function(p){ return p.id === o.payment_method; }) || PAY_METHODS[0];
+        var row = document.createElement("div");
+        row.className = "completed-row";
+        row.innerHTML =
+          '<div class="dot" style="background:' + pm.color + '"></div>' +
+          '<div class="info"><div class="l">' + escapeHtml(o.label) + '</div><div class="t">' + fmtTime(o.opened_at) + '〜' + fmtTime(o.closed_at) + ' ・ ' + pm.label + '</div></div>' +
+          '<div class="amt">' + fmtYen(o.computedTotal) + '</div>';
+        row.addEventListener("click", function(){
+          showConfirm('「' + o.label + '」(' + fmtYen(o.computedTotal) + ') のお会計履歴を削除します。よろしいですか？', async function(){
+            await sb.from("orders").delete().eq("id", o.id);
+            await loadDay(currentDay);
+            toast("履歴を削除しました");
+          });
+        });
+        listEl.appendChild(row);
+      });
+    }
+  }
+
+  async function renderMonthSummary(){
+    var monthPicker = document.getElementById("monthPicker");
+    var monthStr = monthPicker.value || currentDay.slice(0,7);
+    document.getElementById("summaryTitle").textContent = monthStr + " の月次集計";
+    document.getElementById("breakdownTitle").textContent = "営業日ごとの内訳";
+
+    var parts = monthStr.split("-");
+    var y = parseInt(parts[0],10), m = parseInt(parts[1],10);
+    var startStr = monthStr + "-01";
+    var lastDay = new Date(y, m, 0).getDate();
+    var endStr = monthStr + "-" + String(lastDay).padStart(2,"0");
+
+    var results = await Promise.all([
+      sb.from("orders").select("business_day, total, payment_method").eq("status","completed").gte("business_day", startStr).lte("business_day", endStr),
+      sb.from("purchases").select("business_day, amount").gte("business_day", startStr).lte("business_day", endStr)
+    ]);
+    var ordersRes = results[0], purchasesRes = results[1];
+    if (ordersRes.error || purchasesRes.error) {
+      console.warn(ordersRes.error || purchasesRes.error);
+      toast("月次データの取得に失敗しました");
+      return;
+    }
+    var orders = ordersRes.data || [];
+    var purchases = purchasesRes.data || [];
+
+    var totalSales = 0, costTotal = 0;
+    var byMethod = {};
+    PAY_METHODS.forEach(function(pm){ byMethod[pm.id] = 0; });
+    var byDaySales = {}, byDayCount = {}, byDayCost = {};
+
+    orders.forEach(function(o){
+      var t = o.total || 0;
+      totalSales += t;
+      byMethod[o.payment_method] = (byMethod[o.payment_method]||0) + t;
+      byDaySales[o.business_day] = (byDaySales[o.business_day]||0) + t;
+      byDayCount[o.business_day] = (byDayCount[o.business_day]||0) + 1;
+    });
+    purchases.forEach(function(p){
+      costTotal += p.amount;
+      byDayCost[p.business_day] = (byDayCost[p.business_day]||0) + p.amount;
+    });
+
+    renderStatTiles(totalSales, orders.length, costTotal);
+    renderPaymentBars(byMethod);
+
+    var dayKeys = Array.from(new Set(Object.keys(byDaySales).concat(Object.keys(byDayCost)))).sort();
+    var listEl = document.getElementById("completedList");
+    listEl.innerHTML = "";
+    if (dayKeys.length === 0) {
+      listEl.innerHTML = '<div class="empty-state">この月のデータがありません</div>';
+    } else {
+      dayKeys.slice().reverse().forEach(function(k){
+        var sales = byDaySales[k] || 0;
+        var cost = byDayCost[k] || 0;
+        var count = byDayCount[k] || 0;
+        var profit = sales - cost;
+        var profitCls = profit >= 0 ? "positive" : "negative";
+        var profitTxt = (profit < 0 ? "-" : "") + fmtYen(Math.abs(profit));
+        var row = document.createElement("div");
+        row.className = "day-row";
+        row.innerHTML =
+          '<div class="info"><div class="l">' + k + '</div><div class="t">会計 ' + count + '件 ・ 仕入れ ' + fmtYen(cost) + '</div></div>' +
+          '<div class="amt">' + fmtYen(sales) + '<span class="profit-sub ' + profitCls + '">粗利 ' + profitTxt + '</span></div>';
+        listEl.appendChild(row);
+      });
+    }
+  }
+
+  document.getElementById("summaryModeToggle").addEventListener("click", function(e){
+    var btn = e.target.closest(".mode-btn");
+    if (!btn) return;
+    summaryMode = btn.dataset.mode;
+    document.querySelectorAll("#summaryModeToggle .mode-btn").forEach(function(b){ b.classList.remove("active"); });
+    btn.classList.add("active");
+    document.getElementById("monthPickerRow").style.display = summaryMode === "month" ? "inline-flex" : "none";
+    renderSummary();
+  });
+
+  var monthPickerEl = document.getElementById("monthPicker");
+  monthPickerEl.value = currentDay.slice(0,7);
+  monthPickerEl.addEventListener("change", function(){ renderSummary(); });
+
+  // ---------- Confirm dialog ----------
+  var confirmOverlay = document.getElementById("confirmOverlay");
+  function showConfirm(text, onOk){
+    document.getElementById("confirmText").textContent = text;
+    confirmCallback = onOk;
+    confirmOverlay.classList.add("active");
+  }
+  document.getElementById("confirmCancelBtn").addEventListener("click", function(){
+    confirmOverlay.classList.remove("active"); confirmCallback = null;
+  });
+  document.getElementById("confirmOkBtn").addEventListener("click", function(){
+    confirmOverlay.classList.remove("active");
+    if (confirmCallback) confirmCallback();
+    confirmCallback = null;
+  });
+  confirmOverlay.addEventListener("click", function(e){
+    if (e.target === confirmOverlay) { confirmOverlay.classList.remove("active"); confirmCallback = null; }
+  });
+
+  // ---------- Realtime sync across devices ----------
+  var reloadTimer = null;
+  function scheduleReload(){
+    clearTimeout(reloadTimer);
+    reloadTimer = setTimeout(function(){
+      loadDay(currentDay);
+      if (currentScreen === "screen-summary" && summaryMode === "month") renderMonthSummary();
+    }, 400);
+  }
+
+  function initRealtime(){
+    sb.channel("izakaya-sync")
+      .on("postgres_changes", { event: "*", schema: "public", table: "orders" }, scheduleReload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "order_items" }, scheduleReload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "purchases" }, scheduleReload)
+      .on("postgres_changes", { event: "*", schema: "public", table: "menu_items" }, function(){ loadMenu(); })
+      .subscribe(function(status){
+        if (status === "SUBSCRIBED") setSyncDot("ok");
+        else if (status === "CHANNEL_ERROR" || status === "TIMED_OUT" || status === "CLOSED") setSyncDot("err");
+      });
+  }
+
+  async function startApp(){
+    setSyncDot("");
+    await Promise.all([loadMenu(), loadDay(currentDay)]);
+    initRealtime();
+  }
+
+  // ---------- Passphrase gate ----------
+  var lockScreen = document.getElementById("lockScreen");
+  var lockPinInput = document.getElementById("lockPinInput");
+  var lockErrMsg = document.getElementById("lockErrMsg");
+  var lockSubmitBtn = document.getElementById("lockSubmitBtn");
+
+  function showLockScreen(prefillError){
+    lockScreen.classList.remove("hidden");
+    lockErrMsg.textContent = prefillError || "";
+    lockPinInput.value = "";
+    setTimeout(function(){ lockPinInput.focus(); }, 50);
+  }
+
+  async function tryUnlock(pin){
+    lockSubmitBtn.disabled = true;
+    lockErrMsg.textContent = "";
+    try {
+      var res = await sb.rpc("check_pin", { p_pin: pin });
+      if (res.error) {
+        console.warn(res.error);
+        lockErrMsg.textContent = "確認できませんでした。ネット接続をご確認ください。";
+        return false;
+      }
+      if (!res.data) {
+        lockErrMsg.textContent = "合言葉が違います";
+        return false;
+      }
+      localStorage.setItem(PIN_STORAGE_KEY, pin);
+      sb = makeClient(pin);
+      lockScreen.classList.add("hidden");
+      await startApp();
+      return true;
+    } finally {
+      lockSubmitBtn.disabled = false;
+    }
+  }
+
+  lockSubmitBtn.addEventListener("click", function(){
+    var pin = lockPinInput.value.trim();
+    if (!pin) { lockErrMsg.textContent = "合言葉を入力してください"; return; }
+    tryUnlock(pin);
+  });
+  lockPinInput.addEventListener("keydown", function(e){
+    if (e.key === "Enter") lockSubmitBtn.click();
+  });
+
+  async function init(){
+    var savedPin = localStorage.getItem(PIN_STORAGE_KEY);
+    if (savedPin) {
+      var ok = await tryUnlock(savedPin);
+      if (ok) return;
+    }
+    showLockScreen();
+  }
+
+  init();
+})();
+</script>
+</body>
+</html>
