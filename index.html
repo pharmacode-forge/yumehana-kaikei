@@ -284,7 +284,9 @@
     display: flex; align-items: center; gap: 10px; padding: 12px; background: var(--surface-card);
     border: 1px solid var(--gridline); border-radius: 14px; margin-bottom: 8px;
     box-shadow: 0 2px 6px rgba(43,28,16,0.05);
+    cursor: pointer;
   }
+  .day-row:active { transform: scale(0.98); }
   .day-row .info { flex: 1; min-width: 0; }
   .day-row .info .l { font-size: 14px; font-weight: 800; }
   .day-row .info .t { font-size: 11px; color: var(--text-muted); }
@@ -1196,7 +1198,19 @@
         row.className = "day-row";
         row.innerHTML =
           '<div class="info"><div class="l">' + k + '</div><div class="t">会計 ' + count + '件 ・ 仕入れ ' + fmtYen(cost) + '</div></div>' +
-          '<div class="amt">' + fmtYen(sales) + '<span class="profit-sub ' + profitCls + '">粗利 ' + profitTxt + '</span></div>';
+          '<div class="amt">' + fmtYen(sales) + '<span class="profit-sub ' + profitCls + '">粗利 ' + profitTxt + '</span></div>' +
+          '<div style="color:var(--text-muted);font-size:16px;flex-shrink:0">›</div>';
+        row.addEventListener("click", async function(){
+          currentDay = k;
+          dayPicker.value = k;
+          summaryMode = "day";
+          document.querySelectorAll("#summaryModeToggle .mode-btn").forEach(function(b){
+            b.classList.toggle("active", b.dataset.mode === "day");
+          });
+          document.getElementById("monthPickerRow").style.display = "none";
+          await loadDay(currentDay);
+          renderSummary();
+        });
         listEl.appendChild(row);
       });
     }
