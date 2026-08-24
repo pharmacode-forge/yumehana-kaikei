@@ -394,7 +394,7 @@
       <h2 class="section-title">仕入れを記録</h2>
       <div class="add-menu-form">
         <input type="text" class="name" id="newPurchaseName" placeholder="品名（例: 氷・生ビール樽）">
-        <input type="number" id="newPurchaseUnitPrice" placeholder="単価" min="0" step="10">
+        <input type="number" id="newPurchaseUnitPrice" placeholder="単価（税抜）" min="0" step="10">
         <input type="number" id="newPurchaseQty" placeholder="数量" min="1" step="1" value="1">
         <input type="text" class="cat" id="newPurchaseCat" placeholder="カテゴリ（例: お酒・氷）">
         <select id="newPurchaseTaxRate">
@@ -987,7 +987,7 @@
       row.className = "menu-edit-row";
       var qty = p.qty || 1;
       var unitPrice = (p.unit_price != null) ? p.unit_price : p.amount;
-      var qtyMeta = qty > 1 ? (' ・ ' + fmtYen(unitPrice) + ' × ' + qty) : '';
+      var qtyMeta = qty > 1 ? (' ・ ' + fmtYen(unitPrice) + '（税抜） × ' + qty) : '';
       row.innerHTML =
         '<div style="flex:1;min-width:0">' +
           '<div style="font-weight:700;font-size:14px">' + escapeHtml(p.name) + '<span class="tax-badge' + (rate === 8 ? ' rate8' : '') + '">' + rate + '%</span></div>' +
@@ -1006,17 +1006,24 @@
     });
   }
 
+  function purchaseAmountWithTax(unitPrice, qty, taxRate){
+    return Math.round(unitPrice * qty * (100 + taxRate) / 100);
+  }
+
   function updatePurchaseFormTotal(){
     var unitPriceEl = document.getElementById("newPurchaseUnitPrice");
     var qtyEl = document.getElementById("newPurchaseQty");
+    var taxRateEl = document.getElementById("newPurchaseTaxRate");
     var unitPrice = parseInt(unitPriceEl.value, 10);
     var qty = parseInt(qtyEl.value, 10);
+    var taxRate = parseInt(taxRateEl.value, 10) === 8 ? 8 : 10;
     if (isNaN(unitPrice) || unitPrice < 0) unitPrice = 0;
     if (isNaN(qty) || qty < 1) qty = 1;
-    document.getElementById("purchaseFormTotal").textContent = "合計 " + fmtYen(unitPrice * qty);
+    document.getElementById("purchaseFormTotal").textContent = "合計（税込） " + fmtYen(purchaseAmountWithTax(unitPrice, qty, taxRate));
   }
   document.getElementById("newPurchaseUnitPrice").addEventListener("input", updatePurchaseFormTotal);
   document.getElementById("newPurchaseQty").addEventListener("input", updatePurchaseFormTotal);
+  document.getElementById("newPurchaseTaxRate").addEventListener("change", updatePurchaseFormTotal);
 
   document.getElementById("addPurchaseBtn").addEventListener("click", async function(){
     var nameEl = document.getElementById("newPurchaseName");
@@ -1031,7 +1038,7 @@
     var taxRate = parseInt(taxRateEl.value, 10) === 8 ? 8 : 10;
     if (!name) { toast("品名を入力してください"); return; }
     if (isNaN(unitPrice) || unitPrice < 0) { toast("単価を入力してください"); return; }
-    var amount = unitPrice * qty;
+    var amount = purchaseAmountWithTax(unitPrice, qty, taxRate);
     var res = await sb.from("purchases").insert({
       business_day: currentDay, name: name, amount: amount, unit_price: unitPrice, qty: qty,
       category: catEl.value.trim() || "その他", tax_rate: taxRate
