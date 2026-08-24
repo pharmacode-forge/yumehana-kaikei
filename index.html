@@ -246,7 +246,11 @@
   .add-menu-form input[type=text].name { flex: 2; min-width: 100px; }
   .add-menu-form input[type=text].cat { flex: 1; min-width: 80px; }
   .add-menu-form input[type=number] { width: 90px; }
+  .add-menu-form input#newPurchaseQty { width: 76px; }
   .add-menu-form select#newPurchaseTaxRate { flex: 1; min-width: 128px; font-weight: 700; }
+  .add-menu-form .purchase-form-total {
+    flex-basis: 100%; font-size: 13px; font-weight: 800; color: var(--series-1);
+  }
 
   .tax-breakdown { display: flex; gap: 8px; margin-bottom: 14px; }
   .tax-breakdown .tax-tile {
@@ -390,12 +394,14 @@
       <h2 class="section-title">仕入れを記録</h2>
       <div class="add-menu-form">
         <input type="text" class="name" id="newPurchaseName" placeholder="品名（例: 氷・生ビール樽）">
-        <input type="number" id="newPurchaseAmount" placeholder="金額" min="0" step="10">
+        <input type="number" id="newPurchaseUnitPrice" placeholder="単価" min="0" step="10">
+        <input type="number" id="newPurchaseQty" placeholder="数量" min="1" step="1" value="1">
         <input type="text" class="cat" id="newPurchaseCat" placeholder="カテゴリ（例: お酒・氷）">
         <select id="newPurchaseTaxRate">
           <option value="10" selected>10%（標準）</option>
           <option value="8">8%（軽減税率）</option>
         </select>
+        <div class="purchase-form-total" id="purchaseFormTotal">合計 ¥0</div>
         <button class="btn btn-primary btn-sm" id="addPurchaseBtn">追加</button>
       </div>
       <div class="total-row"><span>本日の仕入れ合計</span><span class="amount" id="purchaseTotal">¥0</span></div>
@@ -979,10 +985,13 @@
       var rate = purchaseRateOf(p);
       var row = document.createElement("div");
       row.className = "menu-edit-row";
+      var qty = p.qty || 1;
+      var unitPrice = (p.unit_price != null) ? p.unit_price : p.amount;
+      var qtyMeta = qty > 1 ? (' ・ ' + fmtYen(unitPrice) + ' × ' + qty) : '';
       row.innerHTML =
         '<div style="flex:1;min-width:0">' +
           '<div style="font-weight:700;font-size:14px">' + escapeHtml(p.name) + '<span class="tax-badge' + (rate === 8 ? ' rate8' : '') + '">' + rate + '%</span></div>' +
-          '<div style="font-size:11px;color:var(--text-muted)">' + fmtTime(p.created_at) + ' ・ ' + escapeHtml(p.category || "その他") + '</div>' +
+          '<div style="font-size:11px;color:var(--text-muted)">' + fmtTime(p.created_at) + ' ・ ' + escapeHtml(p.category || "その他") + qtyMeta + '</div>' +
         '</div>' +
         '<div style="font-weight:800;font-variant-numeric:tabular-nums">' + fmtYen(p.amount) + '</div>' +
         '<button class="icon-btn" data-act="del">🗑</button>';
@@ -997,21 +1006,39 @@
     });
   }
 
+  function updatePurchaseFormTotal(){
+    var unitPriceEl = document.getElementById("newPurchaseUnitPrice");
+    var qtyEl = document.getElementById("newPurchaseQty");
+    var unitPrice = parseInt(unitPriceEl.value, 10);
+    var qty = parseInt(qtyEl.value, 10);
+    if (isNaN(unitPrice) || unitPrice < 0) unitPrice = 0;
+    if (isNaN(qty) || qty < 1) qty = 1;
+    document.getElementById("purchaseFormTotal").textContent = "合計 " + fmtYen(unitPrice * qty);
+  }
+  document.getElementById("newPurchaseUnitPrice").addEventListener("input", updatePurchaseFormTotal);
+  document.getElementById("newPurchaseQty").addEventListener("input", updatePurchaseFormTotal);
+
   document.getElementById("addPurchaseBtn").addEventListener("click", async function(){
     var nameEl = document.getElementById("newPurchaseName");
-    var amountEl = document.getElementById("newPurchaseAmount");
+    var unitPriceEl = document.getElementById("newPurchaseUnitPrice");
+    var qtyEl = document.getElementById("newPurchaseQty");
     var catEl = document.getElementById("newPurchaseCat");
     var taxRateEl = document.getElementById("newPurchaseTaxRate");
     var name = nameEl.value.trim();
-    var amount = parseInt(amountEl.value, 10);
+    var unitPrice = parseInt(unitPriceEl.value, 10);
+    var qty = parseInt(qtyEl.value, 10);
+    if (isNaN(qty) || qty < 1) qty = 1;
     var taxRate = parseInt(taxRateEl.value, 10) === 8 ? 8 : 10;
     if (!name) { toast("品名を入力してください"); return; }
-    if (isNaN(amount) || amount < 0) { toast("金額を入力してください"); return; }
+    if (isNaN(unitPrice) || unitPrice < 0) { toast("単価を入力してください"); return; }
+    var amount = unitPrice * qty;
     var res = await sb.from("purchases").insert({
-      business_day: currentDay, name: name, amount: amount, category: catEl.value.trim() || "その他", tax_rate: taxRate
+      business_day: currentDay, name: name, amount: amount, unit_price: unitPrice, qty: qty,
+      category: catEl.value.trim() || "その他", tax_rate: taxRate
     });
     if (res.error) { console.warn(res.error); toast("記録に失敗しました"); return; }
-    nameEl.value = ""; amountEl.value = ""; catEl.value = ""; taxRateEl.value = "10";
+    nameEl.value = ""; unitPriceEl.value = ""; qtyEl.value = "1"; catEl.value = ""; taxRateEl.value = "10";
+    updatePurchaseFormTotal();
     await loadDay(currentDay);
     toast("仕入れを記録しました");
   });
