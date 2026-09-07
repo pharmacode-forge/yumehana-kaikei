@@ -269,6 +269,30 @@
   }
   .tax-badge.rate8 { background: color-mix(in srgb, var(--series-2) 18%, transparent); color: color-mix(in srgb, var(--series-2) 55%, var(--text-primary)); }
 
+  /* 給与計算 (payroll) */
+  .attendance-row { display: flex; gap: 8px; margin-bottom: 12px; }
+  .attendance-badge {
+    flex: 1; display: flex; flex-direction: column; gap: 4px; padding: 11px 12px; min-width: 0;
+    border-radius: 12px; border: 1px solid var(--gridline); background: var(--surface-card);
+    box-shadow: 0 2px 6px rgba(43,28,16,0.05);
+  }
+  .attendance-badge .ab-main { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 800; white-space: nowrap; }
+  .attendance-badge .dot { width: 9px; height: 9px; border-radius: 999px; background: var(--text-muted); flex-shrink: 0; }
+  .attendance-badge.present { border-color: color-mix(in srgb, var(--status-good) 45%, var(--gridline)); }
+  .attendance-badge.present .dot { background: var(--status-good); }
+  .attendance-badge.absent { color: var(--text-muted); }
+  .attendance-badge .sub { font-size: 11px; font-weight: 600; color: var(--text-muted); padding-left: 15px; }
+
+  .settle-card {
+    background: var(--surface-card); border: 1px solid var(--gridline); border-left: 4px solid var(--series-3);
+    border-radius: 14px; padding: 14px; margin: 4px 0 18px; box-shadow: 0 2px 6px rgba(43,28,16,0.05);
+  }
+  .settle-card .lbl { font-size: 12px; color: var(--text-muted); font-weight: 700; margin-bottom: 4px; }
+  .settle-card .val { font-size: 22px; font-weight: 800; font-variant-numeric: tabular-nums; color: var(--status-good); }
+  .settle-card.negative { border-left-color: var(--status-critical); }
+  .settle-card.negative .val { color: var(--status-critical); }
+  .settle-card .note { font-size: 11px; color: var(--text-muted); margin-top: 6px; line-height: 1.5; }
+
   /* Summary screen */
   .mode-toggle { display: flex; gap: 8px; }
   .mode-toggle button {
@@ -444,6 +468,12 @@
       <div class="stat-tiles" id="statTiles"></div>
       <h2 class="section-title">支払い方法の内訳</h2>
       <div id="paymentBars"></div>
+      <div id="payrollSection">
+        <h2 class="section-title">売上分配・給与計算</h2>
+        <div class="attendance-row" id="attendanceRow"></div>
+        <div class="stat-tiles" id="payrollTiles"></div>
+        <div class="settle-card" id="managerSettleCard"></div>
+      </div>
       <h2 class="section-title" id="breakdownTitle">お会計履歴</h2>
       <div id="completedList"></div>
     </section>
@@ -1116,6 +1146,157 @@
     else renderDaySummary();
   }
 
+  // ---------- 売上分配・給与計算 (payroll) ----------
+  var ATTENDANCE_ITEMS = { inohara: "猪原ドリンク", sato: "風壱ドリンク" };
+  var MANAGER_SHARE = 0.3; // 店長の取り分（店舗粗利に対する割合）
+
+  function sumItemQtyByName(orders, name){
+    var total = 0;
+    orders.forEach(function(o){
+      (o.items || []).forEach(function(it){
+        if (it.name === name) total += it.qty;
+      });
+    });
+    return total;
+  }
+
+  // 完了済み注文(salesOrders)と仕入れ額から日次分の給与配分を1件分計算する。
+  // attendanceOrders は出勤判定に使う注文明細（当日はまだ会計前の卓も含める）。
+  function computePayrollFromOrders(salesOrders, costTotal, attendanceOrders){
+    var cashSales = 0, creditSales = 0;
+    salesOrders.forEach(function(o){
+      var amt = (o.computedTotal != null) ? o.computedTotal : (o.total || 0);
+      if (o.payment_method === "cash") cashSales += amt;
+      else creditSales += amt; // PayPay・カード・その他はすべて「クレジット売上」扱い
+    });
+    var totalSales = cashSales + creditSales;
+    var grossProfit = totalSales - costTotal;
+    var managerPay = grossProfit * MANAGER_SHARE;
+    var managerSettlement = managerPay - creditSales;
+    var distributable = grossProfit - managerPay;
+
+    var inoharaQty = sumItemQtyByName(attendanceOrders || salesOrders, ATTENDANCE_ITEMS.inohara);
+    var satoQty = sumItemQtyByName(attendanceOrders || salesOrders, ATTENDANCE_ITEMS.sato);
+    var inoharaPresent = inoharaQty >= 1;
+    var satoPresent = satoQty >= 1;
+
+    var inoharaPay = 0, satoPay = 0, storeRetained = 0;
+    if (inoharaPresent && satoPresent) {
+      inoharaPay = distributable * 0.5;
+      satoPay = distributable * 0.5;
+    } else if (inoharaPresent) {
+      inoharaPay = distributable;
+    } else if (satoPresent) {
+      satoPay = distributable;
+    } else {
+      storeRetained = distributable;
+    }
+
+    return {
+      cashSales: cashSales, creditSales: creditSales, totalSales: totalSales, costTotal: costTotal,
+      grossProfit: grossProfit, managerPay: managerPay, managerSettlement: managerSettlement,
+      distributable: distributable, inoharaQty: inoharaQty, satoQty: satoQty,
+      inoharaPresent: inoharaPresent, satoPresent: satoPresent,
+      inoharaPay: inoharaPay, satoPay: satoPay, storeRetained: storeRetained
+    };
+  }
+
+  function computePayroll(){
+    var costTotal = purchaseTotalOf(dayData.purchases);
+    return computePayrollFromOrders(dayData.completed, costTotal, dayData.open.concat(dayData.completed));
+  }
+
+  // 月間の給与配分は、営業日ごとに①〜④を計算してから合算する
+  // （分配ルールは日単位の出勤判定に基づくため、月の数字をまとめてから計算すると結果が変わってしまう）
+  function computeMonthPayroll(orders, byDayCost){
+    var byDay = {};
+    orders.forEach(function(o){
+      var d = o.business_day;
+      if (!byDay[d]) byDay[d] = [];
+      byDay[d].push({
+        computedTotal: o.total || 0,
+        payment_method: o.payment_method,
+        items: o.order_items || []
+      });
+    });
+    var dayKeys = Array.from(new Set(Object.keys(byDay).concat(Object.keys(byDayCost))));
+    var sum = {
+      cashSales: 0, creditSales: 0, totalSales: 0, costTotal: 0, grossProfit: 0,
+      managerPay: 0, managerSettlement: 0, distributable: 0,
+      inoharaQty: 0, satoQty: 0, inoharaDays: 0, satoDays: 0,
+      inoharaPay: 0, satoPay: 0, storeRetained: 0
+    };
+    dayKeys.forEach(function(d){
+      var dOrders = byDay[d] || [];
+      var dCost = byDayCost[d] || 0;
+      var dp = computePayrollFromOrders(dOrders, dCost, dOrders);
+      sum.cashSales += dp.cashSales;
+      sum.creditSales += dp.creditSales;
+      sum.totalSales += dp.totalSales;
+      sum.costTotal += dCost;
+      sum.grossProfit += dp.grossProfit;
+      sum.managerPay += dp.managerPay;
+      sum.managerSettlement += dp.managerSettlement;
+      sum.distributable += dp.distributable;
+      sum.inoharaQty += dp.inoharaQty;
+      sum.satoQty += dp.satoQty;
+      if (dp.inoharaPresent) sum.inoharaDays++;
+      if (dp.satoPresent) sum.satoDays++;
+      sum.inoharaPay += dp.inoharaPay;
+      sum.satoPay += dp.satoPay;
+      sum.storeRetained += dp.storeRetained;
+    });
+    return sum;
+  }
+
+  function renderPayrollUI(p, monthly){
+    var attendanceRow = document.getElementById("attendanceRow");
+    if (monthly) {
+      attendanceRow.innerHTML =
+        '<div class="attendance-badge' + (p.inoharaDays > 0 ? ' present' : ' absent') + '">' +
+          '<div class="ab-main"><span class="dot"></span>猪原：出勤 ' + p.inoharaDays + '日</div>' +
+          '<div class="sub">猪原ドリンク 合計×' + p.inoharaQty + '</div>' +
+        '</div>' +
+        '<div class="attendance-badge' + (p.satoDays > 0 ? ' present' : ' absent') + '">' +
+          '<div class="ab-main"><span class="dot"></span>佐藤（風壱）：出勤 ' + p.satoDays + '日</div>' +
+          '<div class="sub">風壱ドリンク 合計×' + p.satoQty + '</div>' +
+        '</div>';
+    } else {
+      attendanceRow.innerHTML =
+        '<div class="attendance-badge' + (p.inoharaPresent ? ' present' : ' absent') + '">' +
+          '<div class="ab-main"><span class="dot"></span>猪原：' + (p.inoharaPresent ? "出勤" : "欠勤") + '</div>' +
+          '<div class="sub">猪原ドリンク ×' + p.inoharaQty + '</div>' +
+        '</div>' +
+        '<div class="attendance-badge' + (p.satoPresent ? ' present' : ' absent') + '">' +
+          '<div class="ab-main"><span class="dot"></span>佐藤（風壱）：' + (p.satoPresent ? "出勤" : "欠勤") + '</div>' +
+          '<div class="sub">風壱ドリンク ×' + p.satoQty + '</div>' +
+        '</div>';
+    }
+
+    document.getElementById("payrollTiles").innerHTML =
+      tileHtml("総売上", fmtYen(p.totalSales)) +
+      tileHtml("店舗粗利", fmtYen(p.grossProfit)) +
+      tileHtml("店長総報酬額（粗利30%）", fmtYen(p.managerPay)) +
+      tileHtml("分配可能利益（粗利70%）", fmtYen(p.distributable)) +
+      tileHtml("猪原給与", fmtYen(p.inoharaPay)) +
+      tileHtml("佐藤給与", fmtYen(p.satoPay)) +
+      (p.storeRetained > 0 ? tileHtml("店舗留保額", fmtYen(p.storeRetained)) : "");
+
+    var settleEl = document.getElementById("managerSettleCard");
+    var isNegative = p.managerSettlement < 0;
+    settleEl.className = "settle-card" + (isNegative ? " negative" : "");
+    settleEl.innerHTML =
+      '<div class="lbl">' + (isNegative ? "店長からの返金（過払い精算）" : "店長への追加精算額") + (monthly ? "（月合計）" : "") + '</div>' +
+      '<div class="val">' + fmtYen(Math.abs(p.managerSettlement)) + '</div>' +
+      '<div class="note">店長総報酬額 ' + fmtYen(p.managerPay) + ' − クレジット売上（PayPay・カード・その他含む） ' + fmtYen(p.creditSales) +
+        (isNegative ? '　※クレジット売上が総報酬額を上回ったため、店長から店舗へ返金してください' : '　※現金売上から店長へこの金額を精算してください') +
+        (monthly ? '　※営業日ごとに計算した金額を月内で合計しています' : '') + '</div>';
+  }
+
+  function renderPayroll(){
+    renderPayrollUI(computePayroll(), false);
+  }
+
   function renderDaySummary(){
     document.getElementById("summaryTitle").textContent = currentDay + " の集計";
     document.getElementById("breakdownTitle").textContent = "お会計履歴";
@@ -1129,6 +1310,9 @@
     PAY_METHODS.forEach(function(pm){ byMethod[pm.id] = 0; });
     completed.forEach(function(o){ byMethod[o.payment_method] = (byMethod[o.payment_method]||0) + o.computedTotal; });
     renderPaymentBars(byMethod);
+
+    document.getElementById("payrollSection").hidden = false;
+    renderPayroll();
 
     var listEl = document.getElementById("completedList");
     listEl.innerHTML = "";
@@ -1199,7 +1383,7 @@
     var endStr = monthStr + "-" + String(lastDay).padStart(2,"0");
 
     var results = await Promise.all([
-      sb.from("orders").select("business_day, total, payment_method").eq("status","completed").gte("business_day", startStr).lte("business_day", endStr),
+      sb.from("orders").select("business_day, total, payment_method, order_items(name, qty)").eq("status","completed").gte("business_day", startStr).lte("business_day", endStr),
       sb.from("purchases").select("business_day, amount").gte("business_day", startStr).lte("business_day", endStr)
     ]);
     var ordersRes = results[0], purchasesRes = results[1];
@@ -1230,6 +1414,9 @@
 
     renderStatTiles(totalSales, orders.length, costTotal);
     renderPaymentBars(byMethod);
+
+    document.getElementById("payrollSection").hidden = false;
+    renderPayrollUI(computeMonthPayroll(orders, byDayCost), true);
 
     var dayKeys = Array.from(new Set(Object.keys(byDaySales).concat(Object.keys(byDayCost)))).sort();
     var listEl = document.getElementById("completedList");
