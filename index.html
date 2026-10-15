@@ -1148,7 +1148,20 @@
 
   // ---------- 売上分配・給与計算 (payroll) ----------
   var ATTENDANCE_ITEMS = { inohara: "猪原ドリンク", sato: "風壱ドリンク" };
-  var MANAGER_SHARE = 0.3; // 店長の取り分（店舗粗利に対する割合）
+  // 店長の取り分（店舗粗利に対する割合）。営業日ごとに適用率を切り替える。
+  // from の日付以降（その日を含む）に適用される。新しい変更は末尾に追加する。
+  var MANAGER_SHARE_SCHEDULE = [
+    { from: "0000-01-01", rate: 0.3 }, // 開始〜2026-10-17: 30%
+    { from: "2026-10-18", rate: 0.4 }  // 2026-10-18以降: 40%
+  ];
+  function managerShareFor(businessDay){
+    var rate = MANAGER_SHARE_SCHEDULE[0].rate;
+    MANAGER_SHARE_SCHEDULE.forEach(function(e){
+      if (businessDay && businessDay >= e.from) rate = e.rate;
+    });
+    return rate;
+  }
+  function pct(rate){ return Math.round(rate * 100) + "%"; }
 
   function sumItemQtyByName(orders, name){
     var total = 0;
@@ -1162,7 +1175,8 @@
 
   // 完了済み注文(salesOrders)と仕入れ額から日次分の給与配分を1件分計算する。
   // attendanceOrders は出勤判定に使う注文明細（当日はまだ会計前の卓も含める）。
-  function computePayrollFromOrders(salesOrders, costTotal, attendanceOrders){
+  function computePayrollFromOrders(salesOrders, costTotal, attendanceOrders, businessDay){
+    var managerShare = managerShareFor(businessDay);
     var cashSales = 0, creditSales = 0;
     salesOrders.forEach(function(o){
       var amt = (o.computedTotal != null) ? o.computedTotal : (o.total || 0);
@@ -1171,7 +1185,7 @@
     });
     var totalSales = cashSales + creditSales;
     var grossProfit = totalSales - costTotal;
-    var managerPay = grossProfit * MANAGER_SHARE;
+    var managerPay = grossProfit * managerShare;
     var managerSettlement = managerPay - creditSales;
     var distributable = grossProfit - managerPay;
 
@@ -1194,6 +1208,7 @@
 
     return {
       cashSales: cashSales, creditSales: creditSales, totalSales: totalSales, costTotal: costTotal,
+      managerShare: managerShare, shareLabel: pct(managerShare),
       grossProfit: grossProfit, managerPay: managerPay, managerSettlement: managerSettlement,
       distributable: distributable, inoharaQty: inoharaQty, satoQty: satoQty,
       inoharaPresent: inoharaPresent, satoPresent: satoPresent,
@@ -1203,7 +1218,7 @@
 
   function computePayroll(){
     var costTotal = purchaseTotalOf(dayData.purchases);
-    return computePayrollFromOrders(dayData.completed, costTotal, dayData.open.concat(dayData.completed));
+    return computePayrollFromOrders(dayData.completed, costTotal, dayData.open.concat(dayData.completed), currentDay);
   }
 
   // 月間の給与配分は、営業日ごとに①〜④を計算してから合算する
@@ -1224,12 +1239,14 @@
       cashSales: 0, creditSales: 0, totalSales: 0, costTotal: 0, grossProfit: 0,
       managerPay: 0, managerSettlement: 0, distributable: 0,
       inoharaQty: 0, satoQty: 0, inoharaDays: 0, satoDays: 0,
-      inoharaPay: 0, satoPay: 0, storeRetained: 0
+      inoharaPay: 0, satoPay: 0, storeRetained: 0, shareLabel: ""
     };
+    var shares = [];
     dayKeys.forEach(function(d){
       var dOrders = byDay[d] || [];
       var dCost = byDayCost[d] || 0;
-      var dp = computePayrollFromOrders(dOrders, dCost, dOrders);
+      var dp = computePayrollFromOrders(dOrders, dCost, dOrders, d);
+      if (shares.indexOf(dp.managerShare) < 0) shares.push(dp.managerShare);
       sum.cashSales += dp.cashSales;
       sum.creditSales += dp.creditSales;
       sum.totalSales += dp.totalSales;
@@ -1246,6 +1263,8 @@
       sum.satoPay += dp.satoPay;
       sum.storeRetained += dp.storeRetained;
     });
+    shares.sort();
+    sum.shareLabel = shares.length ? shares.map(pct).join("/") : pct(managerShareFor(dayKeys[0]));
     return sum;
   }
 
@@ -1276,8 +1295,8 @@
     document.getElementById("payrollTiles").innerHTML =
       tileHtml("総売上", fmtYen(p.totalSales)) +
       tileHtml("店舗粗利", fmtYen(p.grossProfit)) +
-      tileHtml("店長総報酬額（粗利30%）", fmtYen(p.managerPay)) +
-      tileHtml("分配可能利益（粗利70%）", fmtYen(p.distributable)) +
+      tileHtml("店長総報酬額（粗利" + p.shareLabel + "）", fmtYen(p.managerPay)) +
+      tileHtml("分配可能利益（残り）", fmtYen(p.distributable)) +
       tileHtml("猪原給与", fmtYen(p.inoharaPay)) +
       tileHtml("佐藤給与", fmtYen(p.satoPay)) +
       (p.storeRetained > 0 ? tileHtml("店舗留保額", fmtYen(p.storeRetained)) : "");
