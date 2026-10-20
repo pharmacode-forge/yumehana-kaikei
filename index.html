@@ -581,8 +581,12 @@
     { id: "other", label: "その他", color: "var(--series-4)" }
   ];
 
+  // 営業日の切り替え時刻。深夜営業の日またぎ分を同じ営業日にまとめるため、
+  // この時刻（朝5時）より前は「前日の営業日」として扱う。
+  var BUSINESS_DAY_CUTOFF_HOUR = 5;
   function todayStr(){
     var d = new Date();
+    if (d.getHours() < BUSINESS_DAY_CUTOFF_HOUR) d = new Date(d.getTime() - 24 * 60 * 60 * 1000);
     var tz = d.getTimezoneOffset() * 60000;
     return new Date(d - tz).toISOString().slice(0,10);
   }
