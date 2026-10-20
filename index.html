@@ -1151,7 +1151,11 @@
   }
 
   // ---------- 売上分配・給与計算 (payroll) ----------
-  var ATTENDANCE_ITEMS = { inohara: "猪原ドリンク", sato: "風壱ドリンク" };
+  // 出勤判定に使う商品名。いずれかが1つ以上注文されていればその人は出勤とみなす
+  var ATTENDANCE_ITEMS = {
+    inohara: ["猪原ドリンク", "猪原オリシャン"],
+    sato: ["風壱ドリンク", "風壱オリシャン"]
+  };
   // 店長の取り分（店舗粗利に対する割合）。営業日ごとに適用率を切り替える。
   // from の日付以降（その日を含む）に適用される。新しい変更は末尾に追加する。
   var MANAGER_SHARE_SCHEDULE = [
@@ -1167,11 +1171,12 @@
   }
   function pct(rate){ return Math.round(rate * 100) + "%"; }
 
-  function sumItemQtyByName(orders, name){
+  function sumItemQtyByName(orders, names){
+    var list = Array.isArray(names) ? names : [names];
     var total = 0;
     orders.forEach(function(o){
       (o.items || []).forEach(function(it){
-        if (it.name === name) total += it.qty;
+        if (list.indexOf(it.name) >= 0) total += it.qty;
       });
     });
     return total;
@@ -1278,21 +1283,21 @@
       attendanceRow.innerHTML =
         '<div class="attendance-badge' + (p.inoharaDays > 0 ? ' present' : ' absent') + '">' +
           '<div class="ab-main"><span class="dot"></span>猪原：出勤 ' + p.inoharaDays + '日</div>' +
-          '<div class="sub">猪原ドリンク 合計×' + p.inoharaQty + '</div>' +
+          '<div class="sub">猪原ドリンク・オリシャン 合計×' + p.inoharaQty + '</div>' +
         '</div>' +
         '<div class="attendance-badge' + (p.satoDays > 0 ? ' present' : ' absent') + '">' +
           '<div class="ab-main"><span class="dot"></span>佐藤（風壱）：出勤 ' + p.satoDays + '日</div>' +
-          '<div class="sub">風壱ドリンク 合計×' + p.satoQty + '</div>' +
+          '<div class="sub">風壱ドリンク・オリシャン 合計×' + p.satoQty + '</div>' +
         '</div>';
     } else {
       attendanceRow.innerHTML =
         '<div class="attendance-badge' + (p.inoharaPresent ? ' present' : ' absent') + '">' +
           '<div class="ab-main"><span class="dot"></span>猪原：' + (p.inoharaPresent ? "出勤" : "欠勤") + '</div>' +
-          '<div class="sub">猪原ドリンク ×' + p.inoharaQty + '</div>' +
+          '<div class="sub">猪原ドリンク・オリシャン ×' + p.inoharaQty + '</div>' +
         '</div>' +
         '<div class="attendance-badge' + (p.satoPresent ? ' present' : ' absent') + '">' +
           '<div class="ab-main"><span class="dot"></span>佐藤（風壱）：' + (p.satoPresent ? "出勤" : "欠勤") + '</div>' +
-          '<div class="sub">風壱ドリンク ×' + p.satoQty + '</div>' +
+          '<div class="sub">風壱ドリンク・オリシャン ×' + p.satoQty + '</div>' +
         '</div>';
     }
 
